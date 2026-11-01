@@ -245,19 +245,6 @@ export default function TripsView({ onSelectStation, startInSaved = false, onSta
         alignItems: 'center',
         justifyContent: 'space-between'
       }}>
-        {/* Detour Pill */}
-        <div style={{
-          background: '#FFFFFF',
-          borderRadius: '20px',
-          padding: '6px 14px',
-          fontSize: '12px',
-          fontWeight: 700,
-          color: '#151C38',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.12)'
-        }}>
-          Detour - {detourKm}km
-        </div>
-
         {/* Shortcut to the saved trips page */}
         <button
           className="trips-saved-shortcut"

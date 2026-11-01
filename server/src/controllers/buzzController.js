@@ -154,8 +154,9 @@ export const createBuzzPost = async (req, res) => {
     const authorProfile = await db.get('users', req.user.id);
     post = await db.create('buzz_posts', {
       author_name: authorName,
+      author_email: String(req.user.email || '').trim().toLowerCase(),
       author_avatar_url: authorProfile?.avatar_url || null,
-      author_handle: isAdmin ? '@chargerhub' : '',
+      author_handle: '',
       author_badge: isAdmin ? 'Verified' : 'Community Member',
       author_verified: isAdmin,
       author_user_id: String(req.user.firebase_uid),

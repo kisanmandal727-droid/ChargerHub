@@ -789,6 +789,43 @@ body {
   cursor: pointer;
 }
 
+.station-listed-amenities {
+  margin-top: 10px;
+  color: #475569;
+  font-size: 11px;
+}
+.station-listed-amenities strong {
+  display: block;
+  margin-bottom: 7px;
+  color: #334155;
+}
+.station-listed-amenities > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.station-listed-amenities span {
+  padding: 5px 8px;
+  border: 1px solid #DDE7E5;
+  border-radius: 999px;
+  background: #F0FAF6;
+  color: #087E63;
+  font-weight: 700;
+}
+.station-amenities-map-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  color: #087E63;
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.station-amenities-map-link:hover {
+  text-decoration: underline;
+}
+
 .station-amenities-spinner {
   flex: 0 0 auto;
   animation: station-amenities-spin 0.9s linear infinite;
@@ -1799,6 +1836,8 @@ body {
   flex-direction: column;
   width: 100%;
   height: min(76vh, 720px);
+  min-height: 0;
+  overflow: hidden;
 }
 
 .buzz-comments-header { align-items: center; margin-bottom: 10px; }
@@ -1881,6 +1920,7 @@ body {
 .buzz-comment-composer {
   flex-shrink: 0;
   padding-top: 12px;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
   border-top: 1px solid #E2E8F0;
 }
 
@@ -2241,15 +2281,39 @@ body {
 }
 
 @media (min-width: 900px) {
+  .auth-viewport {
+    height: 100dvh;
+    min-height: 100dvh;
+    align-items: center;
+    justify-content: flex-start;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 24px;
+  }
+
   .auth-screen {
     width: min(100%, 520px);
     min-height: 0;
-    padding: 40px;
+    flex: 0 0 auto;
+    margin-block: auto;
+    padding: 30px 36px;
     border: 1px solid rgba(226, 232, 240, 0.9);
     border-radius: 24px;
     background: #FFFFFF;
     box-shadow: 0 24px 70px rgba(15, 27, 45, 0.12);
   }
+
+  .auth-brand { margin-bottom: 24px; }
+  .auth-intro { margin-bottom: 16px; }
+  .auth-form { gap: 12px; }
+  .auth-field { gap: 5px; }
+  .auth-field input { min-height: 46px; padding: 11px 14px; }
+  .auth-submit { min-height: 46px; }
+  .auth-divider { margin: 16px 0 12px; }
+  .auth-google-button { min-height: 46px; }
+  .auth-switch { margin: 14px 0; }
+  .auth-policy-check { padding: 10px 0 2px; }
+  .auth-footer { margin-top: 12px; }
 }
 
 /* Wallet and trip layouts adapt to both narrow phones and desktop workspaces. */

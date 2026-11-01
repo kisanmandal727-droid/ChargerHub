@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import L from 'leaflet';
+import '@tomickigrzegorz/leaflet-rotate';
 import { Search, SlidersHorizontal, Navigation, List, MapPin, Zap, ChevronRight, Check, Sparkles, Plus } from 'lucide-react';
 import { api } from '../../api/client.js';
 import { useLocation } from '../../context/LocationContext.jsx';
@@ -78,7 +79,11 @@ export default function MapView({ onSelectStation, onNavigateTab }) {
         center: [location.lat, location.lng],
         zoom: 13,
         zoomControl: false,
-        attributionControl: false
+        attributionControl: false,
+        rotate: true,
+        touchRotate: true,
+        dragRotate: false,
+        shiftKeyRotate: false
       });
 
       // Free OpenStreetMap tiles — no API key required
@@ -175,6 +180,7 @@ export default function MapView({ onSelectStation, onNavigateTab }) {
   const handleRecenter = () => {
     requestLiveLocation();
     if (mapInstanceRef.current) {
+      mapInstanceRef.current.setBearing(0);
       mapInstanceRef.current.setView([location.lat, location.lng], 14, { animate: true });
     }
   };
@@ -229,20 +235,10 @@ export default function MapView({ onSelectStation, onNavigateTab }) {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              cursor: 'pointer',
-              position: 'relative'
+              cursor: 'pointer'
             }}
           >
             <SlidersHorizontal size={16} color={fastOnly ? '#FFFFFF' : '#151C38'} />
-            <span style={{
-              position: 'absolute',
-              top: '6px',
-              right: '6px',
-              width: '6px',
-              height: '6px',
-              borderRadius: '50%',
-              background: '#00C896'
-            }} />
           </button>
         </div>
 
@@ -347,32 +343,34 @@ export default function MapView({ onSelectStation, onNavigateTab }) {
       )}
 
       {/* Floating Action Buttons (Matching Screenshot) */}
-      <div style={{
-        position: 'absolute',
-        bottom: floatingControlsBottom,
-        left: 16,
-        zIndex: 700
-      }}>
-        <button
-          onClick={handleRecenter}
-          type="button"
-          title="Recenter Location"
-          style={{
-            width: '44px',
-            height: '44px',
-            borderRadius: '50%',
-            background: '#FFFFFF',
-            border: 'none',
-            boxShadow: '0 4px 14px rgba(0,0,0,0.15)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer'
-          }}
-        >
-          <Navigation size={20} color="#00C896" style={{ transform: 'rotate(-45deg)' }} />
-        </button>
-      </div>
+      {viewMode === 'map' && (
+        <div style={{
+          position: 'absolute',
+          bottom: floatingControlsBottom,
+          left: 16,
+          zIndex: 700
+        }}>
+          <button
+            onClick={handleRecenter}
+            type="button"
+            title="Recenter Location"
+            style={{
+              width: '44px',
+              height: '44px',
+              borderRadius: '50%',
+              background: '#FFFFFF',
+              border: 'none',
+              boxShadow: '0 4px 14px rgba(0,0,0,0.15)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer'
+            }}
+          >
+            <Navigation size={20} color="#00C896" style={{ transform: 'rotate(-45deg)' }} />
+          </button>
+        </div>
+      )}
 
       <div style={{
         position: 'absolute',

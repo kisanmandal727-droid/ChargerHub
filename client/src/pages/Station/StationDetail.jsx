@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ArrowLeft, Star, Clock, Globe, Zap, Search, Bookmark, ShieldCheck, Share2, LoaderCircle, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Star, Clock, Globe, Zap, Search, Bookmark, ShieldCheck, Share2, LoaderCircle, RefreshCw, ExternalLink } from 'lucide-react';
 import { api } from '../../api/client.js';
 
 export default function StationDetail({ station, onBack, onSelectConnector, onReserveConnector }) {
@@ -9,8 +9,11 @@ export default function StationDetail({ station, onBack, onSelectConnector, onRe
   const [selectedConnectorId, setSelectedConnectorId] = useState(null);
   const [isSaved, setIsSaved] = useState(station?.isSaved || false);
   const [nearbyAmenities, setNearbyAmenities] = useState([]);
+  const [amenitiesSource, setAmenitiesSource] = useState('OpenStreetMap contributors');
+  const [amenitiesStale, setAmenitiesStale] = useState(false);
   const [amenitiesLoading, setAmenitiesLoading] = useState(false);
   const [amenitiesError, setAmenitiesError] = useState('');
+  const [amenitiesUnavailable, setAmenitiesUnavailable] = useState(false);
   const [amenitiesRetry, setAmenitiesRetry] = useState(0);
   const [reviews, setReviews] = useState([]);
   const [reviewStats, setReviewStats] = useState({
@@ -26,6 +29,14 @@ export default function StationDetail({ station, onBack, onSelectConnector, onRe
   const [reviewRetry, setReviewRetry] = useState(0);
 
   const connectors = station?.connectors || [];
+  const stationFacilities = Array.isArray(station?.amenities)
+    ? station.amenities.map((amenity) => String(amenity || '').trim()).filter(Boolean)
+    : [];
+  const stationLatitude = Number(station?.latitude);
+  const stationLongitude = Number(station?.longitude);
+  const openStreetMapUrl = Number.isFinite(stationLatitude) && Number.isFinite(stationLongitude)
+    ? `https://www.openstreetmap.org/?mlat=${stationLatitude}&mlon=${stationLongitude}#map=17/${stationLatitude}/${stationLongitude}`
+    : 'https://www.openstreetmap.org';
   const displayedRating = Number(reviewStats.rating ?? station?.rating ?? 0);
   const displayedReviewCount = Number(reviewStats.total_reviews ?? station?.total_reviews ?? 0);
 
@@ -35,9 +46,16 @@ export default function StationDetail({ station, onBack, onSelectConnector, onRe
     let cancelled = false;
     setAmenitiesLoading(true);
     setAmenitiesError('');
+    setAmenitiesStale(false);
+    setAmenitiesUnavailable(false);
     api.get(`/stations/${station.id}/amenities`)
       .then((result) => {
-        if (!cancelled) setNearbyAmenities(result.amenities || []);
+        if (!cancelled) {
+          setNearbyAmenities(result.amenities || []);
+          setAmenitiesSource(result.source || 'OpenStreetMap contributors');
+          setAmenitiesStale(Boolean(result.stale));
+          setAmenitiesUnavailable(Boolean(result.unavailable));
+        }
       })
       .catch((error) => {
         if (!cancelled) setAmenitiesError(error.message || 'Nearby places could not be loaded.');
@@ -442,28 +460,58 @@ export default function StationDetail({ station, onBack, onSelectConnector, onRe
               <span>{amenitiesError}</span>
               <button type="button" onClick={() => setAmenitiesRetry((attempt) => attempt + 1)}>Try again</button>
             </div>
-          ) : nearbyAmenities.length ? (
-            <div className="station-amenities-grid">
-              {nearbyAmenities.map((amenity) => (
-                <section className="station-amenity-card" key={amenity.id}>
-                  <h4><span aria-hidden="true">{amenity.icon}</span>{amenity.label}</h4>
-                  <ul>
-                    {amenity.places.map((place) => (
-                      <li key={place.id}>
-                        <span>{place.name}</span>
-                        <small>{formatAmenityDistance(place.distance_m)}</small>
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              ))}
+          ) : amenitiesUnavailable ? (
+            <div className="station-amenities-state">
+              Live nearby-place data is not responding right now. Station-listed facilities and the area map are available below.
             </div>
           ) : (
-            <div className="station-amenities-state">No nearby amenities were found in the mapped data within 800 m.</div>
+            <>
+              {amenitiesStale && <div className="station-amenities-state">Showing saved nearby-place data while live data is temporarily unavailable.</div>}
+              {nearbyAmenities.length ? (
+                <div className="station-amenities-grid">
+                  {nearbyAmenities.map((amenity) => (
+                    <section className="station-amenity-card" key={amenity.id}>
+                      <h4><span aria-hidden="true">{amenity.icon}</span>{amenity.label}</h4>
+                      <ul>
+                        {amenity.places.map((place) => (
+                          <li key={place.id}>
+                            <span>{place.name}</span>
+                            <small>{formatAmenityDistance(place.distance_m)}</small>
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
+                  ))}
+                </div>
+              ) : (
+                <div className="station-amenities-state">
+                  {amenitiesStale
+                    ? 'No nearby amenities were listed in the saved map data.'
+                    : 'No nearby amenities were found in the mapped data within 800 m.'}
+                </div>
+              )}
+            </>
           )}
 
+          {!amenitiesLoading && (amenitiesError || amenitiesUnavailable || nearbyAmenities.length === 0) && stationFacilities.length > 0 && (
+            <div className="station-listed-amenities">
+              <strong>Facilities listed for this station</strong>
+              <div>
+                {stationFacilities.map((facility, index) => <span key={`${facility}-${index}`}>{facility}</span>)}
+              </div>
+            </div>
+          )}
+
+          <a className="station-amenities-map-link" href={openStreetMapUrl} target="_blank" rel="noreferrer">
+            <ExternalLink size={14} /> View this area on OpenStreetMap
+          </a>
+
           <p className="station-amenities-attribution">
-            Nearby-place data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap contributors</a>. Map coverage may be incomplete; confirm access and opening hours at the location.
+            {amenitiesSource === 'Geoapify' ? (
+              <>Nearby places powered by <a href="https://www.geoapify.com/" target="_blank" rel="noreferrer">Geoapify</a>; data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap contributors</a>. Map coverage may be incomplete; confirm access and opening hours at the location.</>
+            ) : (
+              <>Nearby-place data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap contributors</a>. Map coverage may be incomplete; confirm access and opening hours at the location.</>
+            )}
           </p>
         </div>
       )}

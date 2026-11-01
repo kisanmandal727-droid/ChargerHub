@@ -34,9 +34,9 @@ export default function AddCreditsModal({ isOpen, onClose }) {
   const presets = [
     { value: '100', label: '₹100' },
     { value: '200', label: '₹200' },
-    { value: '500', label: '₹500', popular: true },
+    { value: '500', label: '₹500' },
     { value: '1000', label: '₹1000' },
-    { value: '2999', label: '₹2999', bonus: '+30% Coins' },
+    { value: '2999', label: '₹2999' },
   ];
 
   if (!isOpen) return null;
@@ -159,16 +159,6 @@ export default function AddCreditsModal({ isOpen, onClose }) {
                     }}
                   >
                     {p.label}
-                    {p.popular && (
-                      <span style={{ position: 'absolute', top: '-9px', left: '50%', transform: 'translateX(-50%)', background: CH_GREEN, color: 'white', fontSize: '8px', fontWeight: 800, padding: '1px 5px', borderRadius: '6px', whiteSpace: 'nowrap' }}>
-                        POPULAR
-                      </span>
-                    )}
-                    {p.bonus && (
-                      <span style={{ position: 'absolute', top: '-9px', left: '50%', transform: 'translateX(-50%)', background: '#6366F1', color: 'white', fontSize: '8px', fontWeight: 800, padding: '1px 5px', borderRadius: '6px', whiteSpace: 'nowrap' }}>
-                        {p.bonus}
-                      </span>
-                    )}
                   </button>
                 ))}
               </div>

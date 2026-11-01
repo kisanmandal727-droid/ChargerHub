@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   ArrowRight,
   Bookmark,
@@ -399,13 +400,6 @@ export default function BuzzView() {
               </h2>
               <p style={{ marginTop: '4px', color: '#CBD5E1', fontSize: '12px' }}>Stories and updates from ChargerHub</p>
             </div>
-            {isAdmin && (
-              <div className="buzz-admin-pill">
-                <UserAvatar name={user?.name || 'ChargerHub'} photo={user?.avatar_url} className="buzz-admin-avatar" />
-                <span>{user?.name || 'ChargerHub Admin'}</span>
-                <CheckCircle2 size={15} fill="#1688F8" color="#FFFFFF" aria-label="Verified admin" />
-              </div>
-            )}
           </div>
 
           <nav className="buzz-main-tabs" aria-label="Buzz sections">
@@ -449,7 +443,7 @@ export default function BuzzView() {
                     <UserAvatar name={user?.name || 'ChargerHub'} photo={user?.avatar_url} className="buzz-admin-avatar" />
                     <strong>{user?.name || (isAdmin ? 'ChargerHub Admin' : 'ChargerHub user')}</strong>
                     {isAdmin && <CheckCircle2 size={16} fill="#1688F8" color="#FFFFFF" aria-label="Verified admin" />}
-                    <span>{isAdmin ? '@chargerhub' : 'Community trip'}</span>
+                    <span>{user?.email || ''}</span>
                   </div>
 
                   <input
@@ -592,7 +586,7 @@ export default function BuzzView() {
                               {isVerified && <CheckCircle2 size={16} fill="#1688F8" color="#FFFFFF" aria-label="Verified account" />}
                               <span className="buzz-post-age">· {relativeTime(post.created_at)}</span>
                             </div>
-                            <span className="buzz-post-handle">{post.author_handle || (isVerified ? '@chargerhub' : post.trip_details ? 'Community trip' : '')}</span>
+                            <span className="buzz-post-handle">{post.author_email || (isOwnPost ? user?.email : '') || post.author_handle || (post.trip_details ? 'Community trip' : '')}</span>
                           </div>
                           <div className="buzz-post-header-actions">
                             <span className="buzz-post-tag">#{String(post.category || 'ChargerHub').replace(/^#/, '')}</span>
@@ -684,7 +678,7 @@ export default function BuzzView() {
         </div>
       </main>
 
-      {commentPost && (
+      {commentPost && createPortal(
         <div className="modal-overlay buzz-comments-overlay" onClick={() => setCommentPost(null)}>
           <section className="bottom-sheet buzz-comments-sheet" role="dialog" aria-modal="true" aria-labelledby="buzz-comments-title" onClick={(event) => event.stopPropagation()}>
             <div className="sheet-handle" />
@@ -752,7 +746,8 @@ export default function BuzzView() {
               </form>
             </div>
           </section>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

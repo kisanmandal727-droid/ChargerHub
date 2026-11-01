@@ -3,6 +3,92 @@ import { randomUUID } from 'node:crypto';
 
 const nearbyAmenitiesCache = new Map();
 const AMENITIES_RADIUS_METERS = 800;
+const AMENITIES_CACHE_TTL_MS = 60 * 60 * 1000;
+const AMENITIES_STALE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const GEOAPIFY_CATEGORIES = [
+  'accommodation.hotel',
+  'accommodation.hostel',
+  'accommodation.guest_house',
+  'accommodation.motel',
+  'amenity.toilet',
+  'catering.cafe',
+  'catering.restaurant',
+  'catering.fast_food',
+  'catering.food_court',
+  'commercial.convenience',
+  'commercial.supermarket',
+  'commercial.department_store',
+  'commercial.shopping_mall',
+  'commercial.kiosk',
+  'parking',
+].join(',');
+
+function getOverpassEndpoints() {
+  return [...new Set([
+    process.env.OVERPASS_API_URL,
+    'https://overpass-api.de/api/interpreter',
+    'https://overpass.kumi.systems/api/interpreter',
+    'https://overpass.private.coffee/api/interpreter',
+  ].filter(Boolean))];
+}
+
+async function fetchGeoapifyAmenities(latitude, longitude, apiKey) {
+  const url = new URL('https://api.geoapify.com/v2/places');
+  url.search = new URLSearchParams({
+    categories: GEOAPIFY_CATEGORIES,
+    filter: `circle:${longitude},${latitude},${AMENITIES_RADIUS_METERS}`,
+    bias: `proximity:${longitude},${latitude}`,
+    limit: '50',
+    lang: 'en',
+    apiKey,
+  }).toString();
+
+  const response = await fetch(url, { signal: AbortSignal.timeout(10000) });
+  if (!response.ok) {
+    const error = new Error(`Geoapify returned HTTP ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
+
+  const payload = await response.json();
+  if (!Array.isArray(payload.features)) throw new Error('Geoapify returned an invalid nearby places response');
+  return payload.features;
+}
+
+async function fetchOverpassAmenities(query) {
+  let lastError;
+
+  for (const endpoint of getOverpassEndpoints()) {
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+          'User-Agent': 'ChargerHub/1.0 (nearby station amenities)',
+        },
+        body: new URLSearchParams({ data: query }).toString(),
+        signal: AbortSignal.timeout(11500),
+      });
+      if (!response.ok) {
+        const error = new Error(`Provider returned HTTP ${response.status}`);
+        error.status = response.status;
+        throw error;
+      }
+
+      const payload = await response.json();
+      if (!Array.isArray(payload.elements)) throw new Error('Provider returned an invalid amenities response');
+      return payload;
+    } catch (error) {
+      lastError = error;
+      console.warn(`Nearby amenities provider failed (${endpoint}):`, error.message);
+      // Timeouts and rate limits should not trigger more requests to public
+      // instances. The client will use station data and the area-map fallback.
+      if (error.name === 'TimeoutError' || error.name === 'AbortError' || error.status === 429) break;
+    }
+  }
+
+  throw lastError || new Error('No nearby amenities provider is configured');
+}
 
 function distanceInMeters(lat1, lng1, lat2, lng2) {
   const toRadians = (value) => value * Math.PI / 180;
@@ -42,6 +128,41 @@ function buildNearbyAmenityGroups(elements, stationLat, stationLng) {
     }).sort((a, b) => a.distance_m - b.distance_m).slice(0, 4);
 
     return places.length ? { ...definition, places } : null;
+  }).filter(Boolean);
+}
+
+function buildGeoapifyAmenityGroups(features, stationLat, stationLng) {
+  const definitions = [
+    { id: 'restroom', label: 'Restroom', icon: '🚻', matches: (categories) => categories.some((category) => category === 'amenity.toilet' || category.startsWith('amenity.toilet.')) },
+    { id: 'food', label: 'Café / restaurant', icon: '☕', matches: (categories) => categories.some((category) => category.startsWith('catering.')) },
+    { id: 'parking', label: 'Parking', icon: '🅿️', matches: (categories) => categories.some((category) => category === 'parking' || category.startsWith('parking.')) },
+    { id: 'shop', label: 'Shop', icon: '🛒', matches: (categories) => categories.some((category) => category.startsWith('commercial.') && !['commercial.shopping_mall', 'commercial.department_store'].includes(category)) },
+    { id: 'hotel', label: 'Hotel nearby', icon: '🏨', matches: (categories) => categories.some((category) => category.startsWith('accommodation.')) },
+    { id: 'mall', label: 'Shopping mall', icon: '🛍️', matches: (categories) => categories.some((category) => ['commercial.shopping_mall', 'commercial.department_store'].includes(category)) },
+  ];
+  const places = features.map((feature) => {
+    const properties = feature?.properties || {};
+    const categories = Array.isArray(properties.categories) ? properties.categories : [];
+    const latitude = Number(properties.lat ?? feature?.geometry?.coordinates?.[1]);
+    const longitude = Number(properties.lon ?? feature?.geometry?.coordinates?.[0]);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+    return {
+      categories,
+      id: String(properties.place_id || feature.id || `${latitude},${longitude}`),
+      name: String(properties.name || properties.address_line1 || properties.formatted || 'Nearby place'),
+      distance_m: Number.isFinite(Number(properties.distance))
+        ? Math.round(Number(properties.distance))
+        : Math.round(distanceInMeters(stationLat, stationLng, latitude, longitude)),
+    };
+  }).filter(Boolean);
+
+  return definitions.map((definition) => {
+    const matchingPlaces = places
+      .filter((place) => definition.matches(place.categories))
+      .sort((a, b) => a.distance_m - b.distance_m)
+      .slice(0, 4)
+      .map(({ id, name, distance_m }) => ({ id, name, distance_m }));
+    return matchingPlaces.length ? { ...definition, places: matchingPlaces } : null;
   }).filter(Boolean);
 }
 
@@ -190,6 +311,7 @@ export const getStationById = async (req, res) => {
 };
 
 export const getNearbyAmenities = async (req, res) => {
+  let cacheKey = null;
   try {
     const station = await db.get('stations', req.params.id);
     if (!station || station.is_active === false) return res.status(404).json({ error: 'Station not found' });
@@ -199,37 +321,56 @@ export const getNearbyAmenities = async (req, res) => {
       return res.status(422).json({ error: 'This station does not have a valid map location' });
     }
 
-    const cacheKey = `${station.id}:${latitude.toFixed(5)}:${longitude.toFixed(5)}`;
+    const geoapifyApiKey = process.env.GEOAPIFY_API_KEY?.trim();
+    const provider = geoapifyApiKey ? 'Geoapify' : 'OpenStreetMap contributors';
+    cacheKey = `${station.id}:${latitude.toFixed(5)}:${longitude.toFixed(5)}:${geoapifyApiKey ? 'geoapify' : 'overpass'}`;
     const cached = nearbyAmenitiesCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) return res.json(cached.data);
 
-    const query = `[out:json][timeout:15];(
-      nwr(around:${AMENITIES_RADIUS_METERS},${latitude},${longitude})["amenity"~"^(toilets|cafe|restaurant|fast_food|food_court|parking|bench|shelter|waiting_area|shopping_mall)$"];
-      nwr(around:${AMENITIES_RADIUS_METERS},${latitude},${longitude})["shop"];
-      nwr(around:${AMENITIES_RADIUS_METERS},${latitude},${longitude})["tourism"~"^(hotel|motel|hostel|guest_house)$"];
-      nwr(around:${AMENITIES_RADIUS_METERS},${latitude},${longitude})["internet_access"~"^(wlan|wifi|wireless|yes)$"];
-      nwr(around:${AMENITIES_RADIUS_METERS},${latitude},${longitude})["air_conditioning"~"^(yes|central|split|window)$"];
-    );out center tags;`;
-    const response = await fetch('https://overpass-api.de/api/interpreter', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-        'User-Agent': 'ChargerHub/1.0 (nearby station amenities)',
-      },
-      body: new URLSearchParams({ data: query }).toString(),
-      signal: AbortSignal.timeout(18000),
-    });
-    if (!response.ok) throw new Error(`Nearby places provider returned ${response.status}`);
-    const payload = await response.json();
+    let amenities;
+    try {
+      if (geoapifyApiKey) {
+        const features = await fetchGeoapifyAmenities(latitude, longitude, geoapifyApiKey);
+        amenities = buildGeoapifyAmenityGroups(features, latitude, longitude);
+      } else {
+        const query = `[out:json][timeout:10];(
+          nwr(around:${AMENITIES_RADIUS_METERS},${latitude},${longitude})["amenity"~"^(toilets|cafe|restaurant|fast_food|food_court|parking|bench|shelter|waiting_area|shopping_mall)$"];
+          nwr(around:${AMENITIES_RADIUS_METERS},${latitude},${longitude})["shop"~"^(convenience|supermarket|department_store|mall|shopping_centre|kiosk|bakery|general)$"];
+          nwr(around:${AMENITIES_RADIUS_METERS},${latitude},${longitude})["tourism"~"^(hotel|motel|hostel|guest_house)$"];
+        );out center tags;`;
+        const payload = await fetchOverpassAmenities(query);
+        amenities = buildNearbyAmenityGroups(payload.elements || [], latitude, longitude);
+      }
+    } catch (providerError) {
+      console.error('Nearby amenities provider unavailable:', providerError);
+      const lastGood = nearbyAmenitiesCache.get(cacheKey);
+      if (lastGood && lastGood.staleUntil > Date.now()) {
+        return res.json({ ...lastGood.data, stale: true });
+      }
+      return res.json({
+        radius_m: AMENITIES_RADIUS_METERS,
+        source: provider,
+        amenities: [],
+        unavailable: true,
+      });
+    }
     const data = {
       radius_m: AMENITIES_RADIUS_METERS,
-      source: 'OpenStreetMap contributors',
-      amenities: buildNearbyAmenityGroups(payload.elements || [], latitude, longitude),
+      source: provider,
+      amenities,
     };
-    nearbyAmenitiesCache.set(cacheKey, { expiresAt: Date.now() + 15 * 60 * 1000, data });
+    nearbyAmenitiesCache.set(cacheKey, {
+      expiresAt: Date.now() + AMENITIES_CACHE_TTL_MS,
+      staleUntil: Date.now() + AMENITIES_STALE_TTL_MS,
+      data,
+    });
     return res.json(data);
   } catch (err) {
     console.error('Fetch nearby station amenities error:', err);
+    const cached = cacheKey ? nearbyAmenitiesCache.get(cacheKey) : null;
+    if (cached && cached.staleUntil > Date.now()) {
+      return res.json({ ...cached.data, stale: true });
+    }
     return res.status(502).json({ error: 'Nearby place data is temporarily unavailable. Please try again.' });
   }
 };
